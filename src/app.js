@@ -1,60 +1,38 @@
 const axios = require("axios");
 const cheerio = require("cheerio");
-// const url = "https://mp.weixin.qq.com/s/wS62HbTPBzsyFf1DUKmMsA";
-
-if (process.argv.length < 3) {
-  console.log("Please provide the url !!!");
-  console.log("Usage: node src/app.js <url>");
-  process.exit(1);
-}
-const url = process.argv[2];
-
-headers = {
-  authority: "mp.weixin.qq.com",
-  accept:
-    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-  "accept-language": "zh,en;q=0.9,en-US;q=0.8,zh-CN;q=0.7,zh-TW;q=0.6",
-  // cookie:
-  //   "pgv_pvid=1683789445432604; ua_id=9s2GivdM4bBLoPLZAAAAAOV9TS3kSThhmx8_LjQW-TA=; RK=IXvECb98a3; ptcz=3912e6d3b6629ffb3446c44cae7b450b4350a4d50b5de95407fd1be124e7e457; fqm_pvqid=a0cc90d1-adf1-4082-ac40-e0215d747240; wxuin=94369298280935; mm_lang=zh_CN; _clck=3205195127|1|fiz|0; xid=6c1b69471c5bcb47d2af12651b8b563f; pac_uid=0_5c1808c5fb3c3; iip=0; _qimei_uuid42=1830e00101f1005d27a72c6eda6282da7a3857fbe2; _qimei_q36=; _qimei_h38=4180a1aa27a72c6eda6282da0900000de1830e; _qimei_fingerprint=2418c5c06268736a5478b4e359dc5e0c; suid=ek164645967533248258; current-city-name=sz; rewardsn=; wxtokenkey=777",
-  pragma: "no-cache",
-  "upgrade-insecure-requests": "1",
-  "user-agent":
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
-};
-
-const crawl = async () => {
-  const response = await axios.get(url, {
-    headers,
-  });
-
-  const html = response.data;
-  //   console.log(html);
-  const $ = cheerio.load(html);
-  const title = $("h1#activity-name").html();
-  console.log(title);
-  const image_url = $("#page-content").find("img");
-
-  console.log(image_url.length);
-  image_url.map(async (i, el) => {
-    let img_url = $(el).attr("data-src");
-    if (img_url) {
-      console.log("Downloading....");
-      console.log(img_url);
-      const today = moment().format("YYYYMMDD_HHmmss");
-
-      await downloadFile(img_url, `image/${today}-${i}.png`);
-    }
-  });
-  return title;
-};
-
 const moment = require("moment");
-
-// console.log(today);
-
 const fs = require("fs");
 const { pipeline: streamPipeline } = require("stream");
 
+// 检查命令行参数是否提供了 URL
+if (process.argv.length < 3) {
+  console.error("Please provide the URL!");
+  console.error("Usage: node src/app.js <url>");
+  process.exit(1);
+}
+
+const url = process.argv[2];
+
+// 请求头配置
+let headers= { 
+  'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7', 
+  'accept-language': 'zh,en;q=0.9,en-US;q=0.8,zh-CN;q=0.7,zh-TW;q=0.6', 
+  'cache-control': 'no-cache', 
+  'pragma': 'no-cache', 
+  'priority': 'u=0, i', 
+  'sec-ch-ua': '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"', 
+  'sec-ch-ua-mobile': '?0', 
+  'sec-ch-ua-platform': '"Windows"', 
+  'sec-fetch-dest': 'document', 
+  'sec-fetch-mode': 'navigate', 
+  'sec-fetch-site': 'none', 
+  'sec-fetch-user': '?1', 
+  'upgrade-insecure-requests': '1', 
+  'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36', 
+  'Cookie': 'rewardsn=; wxtokenkey=777'
+}
+
+// 下载文件函数
 const downloadFile = async (fileUrl, filePath) => {
   try {
     const writer = fs.createWriteStream(filePath);
@@ -64,7 +42,7 @@ const downloadFile = async (fileUrl, filePath) => {
       responseType: "stream",
     });
 
-    // 使用 stream.Pipeline 来处理流
+    // 使用 streamPipeline 处理流
     await new Promise((resolve, reject) => {
       streamPipeline(response.data, writer, (err) => {
         if (err) {
@@ -75,14 +53,84 @@ const downloadFile = async (fileUrl, filePath) => {
       });
     });
 
-    console.log("Download finished.");
+    console.log(`Download finished: ${filePath}`);
   } catch (err) {
-    console.error("Download error:", err);
+    console.error(`Download error for ${fileUrl}:`, err.message);
   }
 };
 
-crawl().then((data) => {
-  {
-    console.log("Done");
+// 爬取页面内容并下载图片 搜狗 文章
+const crawl = async () => {
+  try {
+    console.log("Fetching page content...");
+    const response = await axios.get(url, { headers });
+    const html = response.data;
+
+    const $ = cheerio.load(html);
+    const title = $("h1#activity-name").text().trim();
+    console.log(`Page title: ${title}`);
+
+    const images = $("#page-content").find("img");
+    console.log(`Found ${images.length} images.`);
+
+    images.each(async (i, el) => {
+      const imgUrl = $(el).attr("data-src");
+      if (imgUrl) {
+        console.log(`Downloading image ${i + 1}: ${imgUrl}`);
+        const timestamp = moment().format("YYYYMMDD_HHmmss");
+        const filePath = `image/${timestamp}-${i + 1}.png`;
+
+        // 确保目录存在
+        fs.mkdirSync("image", { recursive: true });
+
+        await downloadFile(imgUrl, filePath);
+      }
+    });
+
+    console.log("Crawling completed.");
+    return title;
+  } catch (err) {
+    console.error("Error during crawling:", err.message);
   }
-});
+};
+
+// 微信PC客户端
+const crawlPC = async () => {
+  try {
+    console.log("Fetching page content...");
+    const response = await axios.get(url, { headers });
+    const html = response.data;
+    console.log(html)
+    const $ = cheerio.load(html);
+    const title = $("h1#activity-name").text().trim();
+    console.log(`Page title: ${title}`);
+
+    const images = $("#page-content").find("img");
+    console.log(`Found ${images.length} images.`);
+
+    images.each(async (i, el) => {
+      const imgUrl = $(el).attr("data-src");
+      if (imgUrl) {
+        console.log(`Downloading image ${i + 1}: ${imgUrl}`);
+        const timestamp = moment().format("YYYYMMDD_HHmmss");
+        const filePath = `image/${timestamp}-${i + 1}.png`;
+
+        // 确保目录存在
+        fs.mkdirSync("image", { recursive: true });
+
+        await downloadFile(imgUrl, filePath);
+      }
+    });
+
+    console.log("Crawling completed.");
+    return title;
+  } catch (err) {
+    console.error("Error during crawling:", err.message);
+  }
+};
+
+// 主程序入口
+(async () => {
+  await crawlPC();
+  console.log("Done.");
+})();
